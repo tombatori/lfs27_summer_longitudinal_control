@@ -44,7 +44,7 @@ public:
             });
 
         // Initialize timer to update state at fixed intervals
-        state_timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(50)),
+        state_timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(dt_ * 1000)),
             [this]() {
                 update_state();
             });
@@ -169,7 +169,7 @@ private:
     rclcpp::TimerBase::SharedPtr state_timer_;
 
     BikeModel bike_model_;
-    double dt_ = 0.01; // Set the time step for the simulation
+    double dt_ = 0.005; // Set the time step for the simulation
 };
 
 int main(int argc, char ** argv)

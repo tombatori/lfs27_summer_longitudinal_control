@@ -29,15 +29,35 @@ struct ModelParams {
     double lf;
     double lr;
     double Iz;
-    double mu;
+    double mu_long;
+    double mu_lat;
     double g;
+
+    double wheel_radius;
+    double max_drive_torque;
+    double max_brake_torque;
+    double Crr;
+    double rho_air;
+    double CdA;
 };
 
 class BikeModel
 {
 public:
     BikeModel(double dt)
-        : m_{200.0, 0.781, 0.736, 260.0, 1.0, 9.81}, // TODO: need parameters for our car
+        : m_{.mass = 200.0,
+            .lf = 0.781,
+            .lr = 0.736,
+            .Iz = 260.0,
+            .mu_long = 0.8,
+            .mu_lat = 1.63,
+            .g = 9.81,
+            .wheel_radius = 0.19,
+            .max_drive_torque = 250.0,
+            .max_brake_torque = 500.0,
+            .Crr = 0.015,
+            .rho_air = 1.225,
+            .CdA = 1.2},
           s_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
           i_{0.0, 0.0, 0.0},
           dt_{dt},
@@ -48,7 +68,7 @@ public:
 
     void set_throttle(double throttle)
     {
-        i_.throttle = throttle;
+        i_.throttle = std::clamp(throttle, -1.0, 1.0);
     }
 
     void update_state(double track_curvature)
@@ -82,30 +102,25 @@ public:
         double v = get_speed();
         double kappa = std::abs(last_track_curvature_);
 
-        if (kappa < 1e-9) {
-            return 0.0;
+        double a_y_req = v * v * kappa;
+        double a_x_req = s_.a_x;
+
+        double a_y_max = m_.mu_lat * m_.g;
+        double a_x_max = m_.mu_long * m_.g;
+
+        if (a_y_max < 1e-9 || a_x_max < 1e-9) {
+            return std::numeric_limits<double>::infinity();
         }
 
-        double required_lateral_acc = v * v * kappa;
-        double max_lateral_acc = m_.mu * m_.g;
-
-        return required_lateral_acc / max_lateral_acc;
+        return std::sqrt(
+            (a_x_req * a_x_req) / (a_x_max * a_x_max) +
+            (a_y_req * a_y_req) / (a_y_max * a_y_max)
+        );
     }
 
     bool was_last_step_feasible() const
     {
         return last_feasible_;
-    }
-
-    double get_max_speed_for_curvature(double track_curvature) const
-    {
-        double kappa = std::abs(track_curvature);
-
-        if (kappa < 1e-9) {
-            return std::numeric_limits<double>::infinity();
-        }
-
-        return std::sqrt(m_.mu * m_.g / kappa);
     }
 
 private:
@@ -152,10 +167,20 @@ private:
             return true;
         }
 
-        double required_lateral_acc = v * v * kappa;
-        double max_lateral_acc = m_.mu * m_.g;
+        double a_y_req = v * v * kappa;
 
-        if (required_lateral_acc > max_lateral_acc) {
+        // Estimate longitudinal acceleration from current throttle/brake command.
+        double a_x_req = eval_longitudinal_acc();
+
+        double a_y_max = m_.mu_lat * m_.g;
+        double a_x_max = m_.mu_long * m_.g;
+
+        double usage = std::sqrt(
+            (a_x_req * a_x_req) / (a_x_max * a_x_max) +
+            (a_y_req * a_y_req) / (a_y_max * a_y_max)
+        );
+
+        if (usage > 1.0) {
             return false;
         }
 
@@ -191,11 +216,52 @@ private:
 
         return -s_.psi_dot * s_.x_dot + F_y_total / m_.mass;
     }
+    
+    double eval_longitudinal_acc() const
+    {
+        double torque_cmd = std::clamp(i_.throttle, -1.0, 1.0);
+        double vx = s_.x_dot;
+
+        // Avoid resistance causing the vehicle to roll backward from rest.
+        if (vx <= 1e-6 && torque_cmd <= 0.0) {
+            return 0.0;
+        }
+
+        double F_drive = 0.0;
+
+        if (torque_cmd >= 0.0) {
+            // Engine/motor supplies requested torque up to max_drive_torque.
+            double wheel_torque = torque_cmd * m_.max_drive_torque;
+
+            F_drive = wheel_torque / m_.wheel_radius;
+        } else {
+            // Negative command gives braking torque.
+            double brake_torque = torque_cmd * m_.max_brake_torque;
+            F_drive = brake_torque / m_.wheel_radius;
+        }
+
+        // Rolling resistance opposes motion.
+        double F_roll = m_.Crr * m_.mass * m_.g;
+
+        // Aerodynamic drag opposes motion.
+        double F_drag = 0.5 * m_.rho_air * m_.CdA * vx * vx;
+
+        double F_resist = F_roll + F_drag;
+
+        // Resistive forces oppose positive forward motion.
+        double F_long = F_drive - F_resist;
+
+        // Do not let resistance alone create backward acceleration at rest.
+        if (vx <= 1e-6 && F_long < 0.0) {
+            F_long = 0.0;
+        }
+
+        return F_long / m_.mass;
+    }
 
     void step_time_forward(double track_curvature)
     {
-        s_.a_x = i_.throttle;
-
+        s_.a_x = eval_longitudinal_acc();
         s_.psi_dot = get_req_yaw_rate(track_curvature);
 
         double x_ddot = eval_x_ddot();
@@ -215,16 +281,6 @@ private:
         s_.x += s_.x_dot * dt_;
         s_.y += s_.y_dot * dt_;
         s_.psi += s_.psi_dot * dt_;
-
-        std::cout << "x_dot: " << s_.x_dot
-                  << ", y_dot: " << s_.y_dot
-                  << ", psi_dot: " << s_.psi_dot
-                  << ", performance: " << get_performance_fraction()
-                  << std::endl;
-        std::cout << "x: " << s_.x
-                  << ", y: " << s_.y
-                  << ", psi: " << s_.psi
-                  << std::endl;
     }
 
     void step_time_forward_infeasible()

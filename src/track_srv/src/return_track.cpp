@@ -61,8 +61,11 @@ void return_track(
         if (!(ss >> z)) {
             z = 0.0;
         }
-
-        std::cout << "Read point: " << x << ", " << y << ", " << label << std::endl;
+        
+        RCLCPP_INFO(
+            rclcpp::get_logger("return_track_server"),
+            "Read point: %f, %f, %s",
+            x, y, label.c_str());
 
         geometry_msgs::msg::Point point;
         point.x = x;
@@ -80,10 +83,7 @@ void return_track(
 }
 void visualize(rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub){
 	geometry_msgs::msg::PolygonStamped pol;
-	// 	pol.polygon.points.push_back(p);
-	// }
-	
-	std::cout << "test" << std::endl;
+
 	for (auto &p : test){
 		geometry_msgs::msg::Point32 p32;
 		p32.x = static_cast<float>(p.x);

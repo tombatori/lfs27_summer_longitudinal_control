@@ -55,7 +55,6 @@ public:
     {
         // Update the bike model state based on the current throttle and track
 
-        std::cout << "Curvature at current position: " << track_curvature_at_current_position() << std::endl;
         bike_model_.update_state(track_curvature_at_current_position());
 
         // Publish the current state

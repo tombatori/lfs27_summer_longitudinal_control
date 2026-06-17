@@ -7,6 +7,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "visualization_msgs/msg/marker.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "track_srv/srv/return_track.hpp"
 
@@ -34,7 +35,7 @@ public:
 
         // Initialize state publisher
         state_publisher_ = this->create_publisher<lfs_msgs::msg::BikeState>("current_state", 10);
-        vis_publisher_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/visualize", 10);
+        vis_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("/visualize_pose", 10);
 
         // Initialize subscriber to throttle commands
         throttle_subscriber_ = this->create_subscription<std_msgs::msg::Float64>("throttle_cmd", 10,
@@ -64,7 +65,16 @@ public:
         state_msg.performance_fraction = bike_model_.get_performance_fraction();
         state_publisher_->publish(state_msg);
 
-		geometry_msgs::msg::PoseStamped pose;
+		visualization_msgs::msg::Marker pose;
+		pose.type = 0;
+		pose.ns = "test";
+		pose.id = 1;
+		pose.action = 0;
+		pose.scale.x = 3;
+		pose.scale.y = 1;
+		pose.scale.z = 1;
+		pose.lifetime = rclcpp::Duration(1, 0);
+		// geometry_msgs::msg::PoseStamped pose;
 		static double time = 0;
 		time += dt_;
 		pose.header.stamp = rclcpp::Time(time);
@@ -80,6 +90,18 @@ public:
 		pose.pose.orientation.y = q.y();
 		pose.pose.orientation.z = q.z();
 		pose.pose.orientation.w = q.w();
+
+
+		if (bike_model_.get_performance_fraction() > 1){
+			pose.color.g = 0;
+			pose.color.r = 1;
+		}
+		else{
+			pose.color.g = bike_model_.get_performance_fraction();
+			pose.color.r = 0;
+			pose.color.b = 0.3;
+		}
+		pose.color.a = 1;
         vis_publisher_->publish(pose);
     }
 
@@ -163,7 +185,7 @@ private:
     std::unique_ptr<LoopingUniformCRSpline<Eigen::Vector2d>> spline_;
 
     rclcpp::Publisher<lfs_msgs::msg::BikeState>::SharedPtr state_publisher_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr vis_publisher_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr vis_publisher_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr throttle_subscriber_;
     rclcpp::TimerBase::SharedPtr state_timer_;
 

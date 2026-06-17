@@ -16,6 +16,7 @@
   <depend>track_srv</depend>
   <depend>eigen3_cmake_module</depend>
   <depend>eigen</depend>
+  <depend>visualization_msgs</depend>
   <!-- <depend>eigen</depend> -->
 
   <test_depend>ament_lint_auto</test_depend>
